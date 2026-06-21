@@ -64,10 +64,9 @@ RUN chmod +x /usr/local/bin/healthcheck.sh
 # 创建必要的目录并设置权限
 RUN mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs \
     && mkdir -p bootstrap/cache \
-    && chown -R www-data:www-data /var/www/html \
+    && chown -R www-data:www-data storage bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 
 EXPOSE 8000
 
-# 使用 artisan serve（FPM 镜像也包含 CLI）
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
