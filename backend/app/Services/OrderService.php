@@ -24,33 +24,16 @@ class OrderService
     public function create(array $data): Order
     {
         return DB::transaction(function () use ($data) {
-            // 验证商品库存
             $items = $data['items'];
-            foreach ($items as $item) {
-                $product = Product::findOrFail($item['product_id']);
-                if (!$product->hasEnoughStock($item['quantity'])) {
-                    throw new \Exception("商品 {$product->name} 库存不足，当前库存：{$product->stock_quantity}");
-                }
-                if ($product->status !== 'active') {
-                    throw new \Exception("商品 {$product->name} 已下架，无法购买");
-                }
-            }
+            $products = $this->loadProducts($items);
 
-            // 生成订单号
+            $this->validateProducts($products, $items);
+
             $orderNo = Order::generateOrderNo();
-
-            // 计算订单金额
-            $totalAmount = 0;
-            foreach ($items as $item) {
-                $product = Product::findOrFail($item['product_id']);
-                $subtotal = $product->price * $item['quantity'];
-                $totalAmount += $subtotal;
-            }
-
+            $totalAmount = $this->calculateTotalAmount($products, $items);
             $discountAmount = $data['discount_amount'] ?? 0;
             $finalAmount = $totalAmount - $discountAmount;
 
-            // 创建订单
             $order = $this->repository->create([
                 'order_no' => $orderNo,
                 'user_id' => $data['user_id'] ?? null,
@@ -64,29 +47,77 @@ class OrderService
                 'remark' => $data['remark'] ?? null,
             ]);
 
-            // 创建订单项并扣减库存
-            foreach ($items as $item) {
-                $product = Product::findOrFail($item['product_id']);
-                $subtotal = $product->price * $item['quantity'];
-
-                OrderItem::create([
-                    'order_id' => $order->id,
-                    'product_id' => $product->id,
-                    'product_name' => $product->name,
-                    'product_sku' => $product->sku,
-                    'product_price' => $product->price,
-                    'quantity' => $item['quantity'],
-                    'subtotal' => $subtotal,
-                ]);
-
-                // 扣减库存
-                $this->inventoryService->decreaseStock($product, $item['quantity'], $order->id, '订单创建');
-            }
+            $this->createOrderItems($order, $products, $items);
 
             Log::info('订单创建成功', ['order_id' => $order->id, 'order_no' => $order->order_no]);
 
             return $order->load('orderItems');
         });
+    }
+
+    /**
+     * 一次性加载所有商品并按 ID 索引
+     */
+    private function loadProducts(array $items): \Illuminate\Database\Eloquent\Collection
+    {
+        $productIds = array_column($items, 'product_id');
+        return Product::whereIn('id', $productIds)->get()->keyBy('id');
+    }
+
+    /**
+     * 验证商品库存和状态
+     */
+    private function validateProducts(\Illuminate\Database\Eloquent\Collection $products, array $items): void
+    {
+        foreach ($items as $item) {
+            $product = $products->get($item['product_id']);
+            if (!$product) {
+                throw new \Exception("商品 ID: {$item['product_id']} 不存在");
+            }
+            if ($product->status !== 'active') {
+                throw new \Exception("商品 {$product->name} 已下架，无法购买");
+            }
+            if (!$product->hasEnoughStock($item['quantity'])) {
+                throw new \Exception("商品 {$product->name} 库存不足，当前库存：{$product->stock_quantity}");
+            }
+        }
+    }
+
+    /**
+     * 计算订单总金额
+     */
+    private function calculateTotalAmount(\Illuminate\Database\Eloquent\Collection $products, array $items): float
+    {
+        $totalAmount = 0;
+        foreach ($items as $item) {
+            $product = $products->get($item['product_id']);
+            $subtotal = $product->price * $item['quantity'];
+            $totalAmount += $subtotal;
+        }
+        return $totalAmount;
+    }
+
+    /**
+     * 创建订单项并扣减库存
+     */
+    private function createOrderItems(Order $order, \Illuminate\Database\Eloquent\Collection $products, array $items): void
+    {
+        foreach ($items as $item) {
+            $product = $products->get($item['product_id']);
+            $subtotal = $product->price * $item['quantity'];
+
+            OrderItem::create([
+                'order_id' => $order->id,
+                'product_id' => $product->id,
+                'product_name' => $product->name,
+                'product_sku' => $product->sku,
+                'product_price' => $product->price,
+                'quantity' => $item['quantity'],
+                'subtotal' => $subtotal,
+            ]);
+
+            $this->inventoryService->decreaseStock($product, $item['quantity'], $order->id, '订单创建');
+        }
     }
 
     /**
@@ -143,9 +174,9 @@ class OrderService
      */
     private function restoreInventory(Order $order): void
     {
+        $order->load('orderItems.product');
         foreach ($order->orderItems as $item) {
-            $product = Product::findOrFail($item->product_id);
-            $this->inventoryService->increaseStock($product, $item->quantity, $order->id, '订单取消');
+            $this->inventoryService->increaseStock($item->product, $item->quantity, $order->id, '订单取消');
         }
     }
 }
