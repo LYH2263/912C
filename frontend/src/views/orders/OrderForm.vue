@@ -303,7 +303,7 @@ const handleSubmit = async () => {
       ElMessage.success('订单创建成功')
       router.push('/orders')
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '订单创建失败')
+      ElMessage.error(error.message || '订单创建失败')
     } finally {
       loading.value = false
     }

@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Repositories\InventoryRepository;
 use App\Services\InventoryService;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class InventoryApiController extends Controller
@@ -17,40 +16,23 @@ class InventoryApiController extends Controller
     ) {
     }
 
-    /**
-     * 获取库存列表
-     */
-    public function index(Request $request): JsonResponse
+    public function index(Request $request)
     {
         $filters = $request->only(['category_id', 'low_stock', 'out_of_stock', 'sufficient']);
         $perPage = $request->get('per_page', 15);
 
         $inventory = $this->repository->paginate($filters, $perPage);
 
-        return response()->json([
-            'data' => $inventory->items(),
-            'meta' => [
-                'current_page' => $inventory->currentPage(),
-                'per_page' => $inventory->perPage(),
-                'total' => $inventory->total(),
-                'last_page' => $inventory->lastPage(),
-            ],
-        ]);
+        return $this->paginated($inventory->items(), $inventory);
     }
 
-    /**
-     * 获取商品库存详情
-     */
-    public function show(Product $product): JsonResponse
+    public function show(Product $product)
     {
         $product->load('category', 'inventoryLogs');
-        return response()->json(['data' => $product]);
+        return $this->success($product);
     }
 
-    /**
-     * 更新库存数量
-     */
-    public function update(Request $request, Product $product): JsonResponse
+    public function update(Request $request, Product $product)
     {
         $validated = $request->validate([
             'quantity' => 'required|integer|min:0',
@@ -59,10 +41,9 @@ class InventoryApiController extends Controller
 
         try {
             $log = $this->service->adjustStock($product, $validated['quantity'], $validated['remark'] ?? '');
-            return response()->json(['data' => $log]);
+            return $this->success($log, '库存更新成功');
         } catch (\Exception $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
+            return $this->error($e->getMessage(), 400);
         }
     }
-
 }

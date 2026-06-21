@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\ProductResource;
 use App\Models\Product;
 use App\Services\ProductService;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ProductApiController extends Controller
@@ -17,40 +16,26 @@ class ProductApiController extends Controller
     ) {
     }
 
-    /**
-     * 获取商品列表
-     */
-    public function index(Request $request): JsonResponse
+    public function index(Request $request)
     {
         $filters = $request->only(['category_id', 'status', 'search']);
         $perPage = $request->get('per_page', 15);
 
         $products = $this->repository->paginate($filters, $perPage);
 
-        return response()->json([
-            'data' => ProductResource::collection($products->items()),
-            'meta' => [
-                'current_page' => $products->currentPage(),
-                'per_page' => $products->perPage(),
-                'total' => $products->total(),
-                'last_page' => $products->lastPage(),
-            ],
-        ]);
+        return $this->paginated(
+            ProductResource::collection($products->items()),
+            $products
+        );
     }
 
-    /**
-     * 获取商品详情
-     */
-    public function show(Product $product): JsonResponse
+    public function show(Product $product)
     {
         $product->load('category', 'inventoryLogs');
-        return response()->json(['data' => new ProductResource($product)]);
+        return $this->success(new ProductResource($product));
     }
 
-    /**
-     * 创建商品
-     */
-    public function store(Request $request): JsonResponse
+    public function store(Request $request)
     {
         $validated = $request->validate([
             'name' => 'required|string|max:200',
@@ -68,16 +53,13 @@ class ProductApiController extends Controller
 
         try {
             $product = $this->service->create($validated);
-            return response()->json(['data' => new ProductResource($product)], 201);
+            return $this->success(new ProductResource($product), '商品创建成功');
         } catch (\Exception $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
+            return $this->error($e->getMessage(), 400);
         }
     }
 
-    /**
-     * 更新商品
-     */
-    public function update(Request $request, Product $product): JsonResponse
+    public function update(Request $request, Product $product)
     {
         $validated = $request->validate([
             'name' => 'sometimes|string|max:200',
@@ -96,22 +78,19 @@ class ProductApiController extends Controller
 
         try {
             $product = $this->service->update($product, $validated);
-            return response()->json(['data' => new ProductResource($product)]);
+            return $this->success(new ProductResource($product), '商品更新成功');
         } catch (\Exception $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
+            return $this->error($e->getMessage(), 400);
         }
     }
 
-    /**
-     * 删除商品
-     */
-    public function destroy(Product $product): JsonResponse
+    public function destroy(Product $product)
     {
         try {
             $this->service->delete($product);
-            return response()->json(['message' => '商品删除成功']);
+            return $this->success(null, '商品删除成功');
         } catch (\Exception $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
+            return $this->error($e->getMessage(), 400);
         }
     }
 }
